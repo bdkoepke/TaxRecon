@@ -115,28 +115,14 @@ let main args =
                             let updatedQuantity =
                                 currentPosition.Quantity + transaction.Quantity
 
-                            let updatedPositions =
-                                match updatedQuantity with
-                                | 0 ->
-                                    positions
-                                    |> Map.remove (transaction.Account, transaction.BBGlobalID)
-                                | _ ->
-                                    let updatedPosition =
-                                        { currentPosition with
-                                              Quantity = updatedQuantity
-                                              ACB = updateACB currentPosition transaction }
-                                    upsertPosition positions transaction updatedPosition
-
-                            let taxableQuantity =
-                                let min =
+                            let minQuantity =
                                     [ currentPosition.Quantity
                                       transaction.Quantity ]
                                     |> List.map abs
                                     |> List.min
+                            let taxableQuantity = minQuantity *  Math.Sign(transaction.Quantity)
 
-                                min * Math.Sign(transaction.Quantity)
-
-                            let acb =
+                            let taxableAcb =
                                 match currentPosition.ACB with
                                 (* Bug for negative prices... *)
                                 | CAD x ->
@@ -145,11 +131,31 @@ let main args =
                                         * -(decimal taxableQuantity)
                                     )
 
+                            let updatedPositions =
+                                match updatedQuantity with
+                                | 0 ->
+                                    positions
+                                    |> Map.remove (transaction.Account, transaction.BBGlobalID)
+                                | _ ->
+                                    let updatedAcb =
+                                        let acbQuantity = minQuantity * Math.Sign(currentPosition.Quantity)
+                                        
+                                        match currentPosition.ACB, transaction.Price with
+                                        | CAD acb, CAD price ->
+                                            acb-(acb/(decimal currentPosition.Quantity))*(decimal acbQuantity)+(decimal (acbQuantity+transaction.Quantity))*price
+                                            |> CAD
+                                    
+                                    let updatedPosition =
+                                        { currentPosition with
+                                              Quantity = updatedQuantity
+                                              ACB = updatedAcb  }
+                                    upsertPosition positions transaction updatedPosition
+
                             updatedPositions,
                             { Transaction =
                                   { transaction with
                                         Quantity = taxableQuantity }
-                              ACB = acb }
+                              ACB = taxableAcb }
                             :: taxableTransactions
                 | TransferOut ->
                     let maybePosition =
